@@ -7,6 +7,12 @@ const userRegistrationSchema = zod.object({
     password: zod.string().min(6, 'Password must be at least 6 characters long'),
 });
 
+const userLoginSchema = zod.object({
+    email: zod.string().email('Invalid email address'),
+    password: zod.string().min(6, 'Password must be at least 6 characters long'),
+});
+
 module.exports = {
     userRegistrationSchema,
+    userLoginSchema,
 };
