@@ -6,15 +6,7 @@ const EventRegistration = require('../models/eventRegistrationModel');
 const { eventCreationSchema, eventUpdateSchema } = require('../zodValidation/eventValidationSchema');
 const requireAuth = require('../middleware/auth');
 
-eventRouter.get('/', requireAuth, async (req, res) => {
-    try{
-        const events = await Event.find();
-        res.status(200).json(events);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-});
-
+//get event by id endpoint
 eventRouter.get('/:id', requireAuth, async (req, res) => {
     const { id } = req.params;
     try{
@@ -29,7 +21,8 @@ eventRouter.get('/:id', requireAuth, async (req, res) => {
     }
 });
 
-eventRouter.post('/', requireAuth, async (req, res) => {
+// create event endpoint - validate the input using zod schema and only allow authenticated users to create events
+eventRouter.post('/create', requireAuth, async (req, res) => {
     const body = req.body;
     const isValid = eventCreationSchema.safeParse(body);
     if (!isValid.success) {
@@ -44,7 +37,8 @@ eventRouter.post('/', requireAuth, async (req, res) => {
     }
 });
 
-eventRouter.put('/:id', async (req, res) => {
+// update event endpoint - only allow updating certain fields and validate the input using zod schema
+eventRouter.put('/:id', requireAuth, async (req, res) => {
     const { id } = req.params;
     const body = req.body;
     const isValid = eventUpdateSchema.safeParse(body);
@@ -62,19 +56,25 @@ eventRouter.put('/:id', async (req, res) => {
     }
 });
 
+// delete event endpoint - only if there are no attendees registered for the event
 eventRouter.delete('/:id', requireAuth, async (req, res) => {
     const { id } = req.params;
-    try{
-        const deletedEvent = await Event.findByIdAndDelete(id);
-        if (!deletedEvent) {
-            return res.status(404).json({ message: "Event not found" });
+    try {
+        const event = await Event.findById(id);
+        if (!event) {
+            return res.status(404).json({ message: 'Event not found' });
         }
-        res.status(200).json({ message: "Event deleted successfully", event: deletedEvent });
+        if (event.attendees && event.attendees.length > 0) {
+            return res.status(400).json({ message: 'Cannot delete event with registered attendees' });
+        }
+        await Event.findByIdAndDelete(id);
+        res.status(200).json({ message: 'Event deleted successfully' });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }
 });
 
+//event registration endpoint
 eventRouter.post('/:id/register', requireAuth, async (req, res) => {
     const { id } = req.params;
 
@@ -90,102 +90,115 @@ eventRouter.post('/:id/register', requireAuth, async (req, res) => {
     const now = new Date();
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
-    const session = await mongoose.startSession();
     try {
-        let txResult;
-
-        await session.withTransaction(async () => {
-            const updatedEvent = await Event.findOneAndUpdate(
-                {
-                    $and: [
-                        { _id: id },
-                        { status: 'published' },
-                        {
-                            $or: [
-                                { registrationDeadline: { $exists: false } },
-                                { registrationDeadline: null },
-                                { registrationDeadline: { $gte: now } },
-                            ],
-                        },
-                        {
-                            $or: [
-                                { attendees: userObjectId },
-                                { isUnlimitedCapacity: true },
-                                {
-                                    $expr: {
-                                        $lt: [
-                                            { $size: { $ifNull: ['$attendees', []] } },
-                                            { $ifNull: ['$capacity', 0] },
-                                        ],
-                                    },
+        const updatedEvent = await Event.findOneAndUpdate(
+            {
+                $and: [
+                    { _id: id },
+                    { status: 'published' },
+                    {
+                        $or: [
+                            { registrationDeadline: { $exists: false } },
+                            { registrationDeadline: null },
+                            { registrationDeadline: { $gte: now } },
+                        ],
+                    },
+                    {
+                        $or: [
+                            { attendees: userObjectId },
+                            { isUnlimitedCapacity: true },
+                            {
+                                $expr: {
+                                    $lt: [
+                                        { $size: { $ifNull: ['$attendees', []] } },
+                                        { $ifNull: ['$capacity', 0] },
+                                    ],
                                 },
-                            ],
-                        },
-                    ],
-                },
-                { $addToSet: { attendees: userObjectId } },
-                { new: true, session }
-            );
+                            },
+                        ],
+                    },
+                ],
+            },
+            { $addToSet: { attendees: userObjectId } },
+            { new: true }
+        );
 
-            if (!updatedEvent) {
-                const event = await Event.findById(id)
-                    .select('status registrationDeadline isUnlimitedCapacity capacity attendees')
-                    .session(session);
-
-                const err = new Error('Unable to register for this event');
-                if (!event) {
-                    err.status = 404;
-                    err.message = 'Event not found';
-                    throw err;
-                }
-                if (event.status !== 'published') {
-                    err.status = 400;
-                    err.message = 'Event is not open for registration';
-                    throw err;
-                }
-                if (event.registrationDeadline && event.registrationDeadline < now) {
-                    err.status = 400;
-                    err.message = 'Registration deadline has passed';
-                    throw err;
-                }
-                if (!event.isUnlimitedCapacity && event.attendees.length >= event.capacity) {
-                    err.status = 400;
-                    err.message = 'Event is full';
-                    throw err;
-                }
-
-                err.status = 400;
-                throw err;
+        if (!updatedEvent) {
+            const event = await Event.findById(id).select('status registrationDeadline isUnlimitedCapacity capacity attendees');
+            if (!event) {
+                return res.status(404).json({ message: 'Event not found' });
             }
+            if (event.status !== 'published') {
+                return res.status(400).json({ message: 'Event is not open for registration' });
+            }
+            if (event.registrationDeadline && event.registrationDeadline < now) {
+                return res.status(400).json({ message: 'Registration deadline has passed' });
+            }
+            if (!event.isUnlimitedCapacity && event.attendees.length >= event.capacity) {
+                return res.status(400).json({ message: 'Event is full' });
+            }
+            return res.status(400).json({ message: 'Unable to register for this event' });
+        }
 
-            const registration = await EventRegistration.findOneAndUpdate(
+        let registration;
+        try {
+            registration = await EventRegistration.findOneAndUpdate(
                 { event: updatedEvent._id, user: userObjectId },
                 {
                     $set: { status: 'registered', cancelledAt: null },
                     $setOnInsert: { registeredAt: now, source: 'api' },
                 },
-                { upsert: true, new: true, session }
+                { upsert: true, new: true }
             );
+        } catch (error) {
+            if (error && error.code === 11000) {
+                registration = await EventRegistration.findOne({ event: updatedEvent._id, user: userObjectId });
+                return res.status(200).json({ message: 'Already registered', registration, event: updatedEvent });
+            }
 
-            txResult = { updatedEvent, registration };
-        });
-
-        return res.status(200).json({
-            message: 'Registered successfully',
-            registration: txResult.registration,
-            event: txResult.updatedEvent,
-        });
-    } catch (error) {
-        if (error && error.code === 11000) {
-            return res.status(200).json({ message: 'Already registered' });
+            // Best-effort compensation if registration write fails after event update
+            await Event.updateOne({ _id: updatedEvent._id }, { $pull: { attendees: userObjectId } }).catch(() => {});
+            throw error;
         }
+
+        return res.status(200).json({ message: 'Registered successfully', registration, event: updatedEvent });
+    } catch (error) {
         return res.status(error.status || 500).json({ message: error.message });
-    } finally {
-        session.endSession();
     }
 });
 
+//get all the registered events for a user
+eventRouter.get('/my-registrations', requireAuth, async (req, res) => {
+    const { userId } = req.user || {};
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+        return res.status(401).json({ message: 'Invalid user in token' });
+    }
+    try {
+        const registrations = await EventRegistration.find({ user: userId })
+            .populate('event')
+            .exec();
+        res.status(200).json(registrations);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
 
+//get all the attendees for an event
+eventRouter.get('/:id/attendees', requireAuth, async (req, res) => {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+        return res.status(400).json({ message: 'Invalid event id' });
+    }
+    try {
+        const event = await Event.findById(id).populate('attendees', 'name email'); 
+        if (!event) {
+            return res.status(404).json({ message: 'Event not found' });
+        }
+        res.status(200).json(event.attendees);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
 
 
 module.exports = eventRouter;
