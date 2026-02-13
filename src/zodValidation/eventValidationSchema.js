@@ -20,4 +20,6 @@ const eventCreationSchema = zod.object({
     }).optional(),
 });
 
-module.exports = { eventCreationSchema };
+const eventUpdateSchema = eventCreationSchema.partial();
+
+module.exports = { eventCreationSchema, eventUpdateSchema };
