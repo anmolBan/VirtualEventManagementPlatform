@@ -8,6 +8,22 @@ const { eventCreationSchema, eventUpdateSchema } = require('../zodValidation/eve
 const requireAuth = require('../middleware/auth');
 const { Resend } = require('resend');
 
+//get all the registered events for a user
+eventRouter.get('/my-registrations', requireAuth, async (req, res) => {
+    const { userId } = req.user || {};
+    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
+        return res.status(401).json({ message: 'Invalid user in token' });
+    }
+    try {
+        const registrations = await EventRegistration.find({ user: userId })
+            .populate('event')
+            .exec();
+        res.status(200).json(registrations);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+
 //get event by id endpoint
 eventRouter.get('/:id', requireAuth, async (req, res) => {
     const { id } = req.params;
@@ -195,22 +211,6 @@ eventRouter.post('/:id/register', requireAuth, async (req, res) => {
         return res.status(200).json({ message: 'Registered successfully', registration, event: updatedEvent });
     } catch (error) {
         return res.status(error.status || 500).json({ message: error.message });
-    }
-});
-
-//get all the registered events for a user
-eventRouter.get('/my-registrations', requireAuth, async (req, res) => {
-    const { userId } = req.user || {};
-    if (!userId || !mongoose.Types.ObjectId.isValid(userId)) {
-        return res.status(401).json({ message: 'Invalid user in token' });
-    }
-    try {
-        const registrations = await EventRegistration.find({ user: userId })
-            .populate('event')
-            .exec();
-        res.status(200).json(registrations);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
     }
 });
 

@@ -4,18 +4,24 @@ const userRouter = require('./routes/userRoutes');
 const eventRouter = require('./routes/eventRoutes');
 const MongoDB = require('./db/mongo');
 
-dotenv.config();
-const PORT = process.env.PORT || 3000;
-
 const app = express();
 
 app.use(express.json());
 
-MongoDB();
-
 app.use('/users', userRouter);
 app.use('/events', eventRouter);
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+// When running `node src/app.js` (dev/start), boot the server.
+// When importing (tests), only export the app.
+if (require.main === module) {
+    dotenv.config();
+    const PORT = process.env.PORT || 3000;
+
+    MongoDB();
+
+    app.listen(PORT, () => {
+        console.log(`Server is running on port ${PORT}`);
+    });
+}
+
+module.exports = app;
