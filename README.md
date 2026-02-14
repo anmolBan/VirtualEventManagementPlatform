@@ -36,6 +36,12 @@ Backend API for creating virtual/in-person/hybrid events and allowing attendees 
 - `nodemon`
 - `resend`
 
+Dev/test dependencies:
+
+- `jest`
+- `supertest`
+- `mongodb-memory-server`
+
 Note: `@types/express` is included in dependencies even though this is a JavaScript (CommonJS) project.
 
 ## Project Structure
@@ -252,7 +258,23 @@ If you’re not receiving emails:
 - Registration currently requires event `status` to be `published`. Ensure your event documents are published before testing registration.
 - If you want strict atomicity between updating `Event.attendees` and inserting `EventRegistration`, MongoDB transactions require running MongoDB as a replica set.
 
+## Testing
+
+This project uses Jest + Supertest for integration tests, backed by an in-memory MongoDB (`mongodb-memory-server`).
+
+- Test file: [tests/integration.test.js](tests/integration.test.js)
+- Jest config: [jest.config.js](jest.config.js)
+
+Run tests:
+
+```bash
+npm test
+```
+
+Implementation detail: [src/app.js](src/app.js) only starts the HTTP server and connects MongoDB when executed directly. When imported by tests, it exports the Express `app` without binding a port.
+
 ## Scripts
 
 - `npm run dev` – starts `src/app.js` with nodemon
 - `npm start` – runs `npm install` then starts the server with `node src/app.js`
+- `npm test` – runs Jest integration tests (`jest --runInBand`)
