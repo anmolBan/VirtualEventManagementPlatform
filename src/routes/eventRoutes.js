@@ -3,8 +3,10 @@ const eventRouter = express.Router();
 const mongoose = require('mongoose');
 const Event = require('../models/eventModel');
 const EventRegistration = require('../models/eventRegistrationModel');
+const User = require('../models/userModel');
 const { eventCreationSchema, eventUpdateSchema } = require('../zodValidation/eventValidationSchema');
 const requireAuth = require('../middleware/auth');
+const { Resend } = require('resend');
 
 //get event by id endpoint
 eventRouter.get('/:id', requireAuth, async (req, res) => {
@@ -46,7 +48,7 @@ eventRouter.put('/:id', requireAuth, async (req, res) => {
         return res.status(400).json({ errors: isValid.error.errors });
     }
     try{
-        const updatedEvent = await Event.findByIdAndUpdate(id, isValid.data, { new: true });
+        const updatedEvent = await Event.findByIdAndUpdate(id, isValid.data, { returnDocument: 'after' });
         if (!updatedEvent) {
             return res.status(404).json({ message: "Event not found" });
         }
@@ -120,7 +122,7 @@ eventRouter.post('/:id/register', requireAuth, async (req, res) => {
                 ],
             },
             { $addToSet: { attendees: userObjectId } },
-            { new: true }
+            { returnDocument: 'after' }
         );
 
         if (!updatedEvent) {
@@ -148,7 +150,7 @@ eventRouter.post('/:id/register', requireAuth, async (req, res) => {
                     $set: { status: 'registered', cancelledAt: null },
                     $setOnInsert: { registeredAt: now, source: 'api' },
                 },
-                { upsert: true, new: true }
+                { upsert: true, returnDocument: 'after' }
             );
         } catch (error) {
             if (error && error.code === 11000) {
@@ -161,6 +163,35 @@ eventRouter.post('/:id/register', requireAuth, async (req, res) => {
             throw error;
         }
 
+        const canSendEmail = Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL);
+        if (!canSendEmail) {
+            console.warn('Registration email skipped: RESEND_API_KEY or RESEND_FROM_EMAIL not set');
+        } else {
+            try {
+                const user = await User.findById(userObjectId).select('email name');
+
+                if (user?.email) {
+                    const resend = new Resend(process.env.RESEND_API_KEY);
+                    const { data, error } = await resend.emails.send({
+                        from: process.env.RESEND_FROM_EMAIL,
+                        to: user.email,
+                        subject: `Registration Confirmed: ${updatedEvent.title}`,
+                        html: `<p>Hi${user.name ? ` ${user.name}` : ''},</p><p>You have successfully registered for the event: <strong>${updatedEvent.title}</strong>.</p><p>Event Details:</p><ul><li><strong>Title:</strong> ${updatedEvent.title}</li><li><strong>Description:</strong> ${updatedEvent.description}</li><li><strong>Mode:</strong> ${updatedEvent.mode}</li><li><strong>Start Time:</strong> ${updatedEvent.startAt.toLocaleString()}</li><li><strong>End Time:</strong> ${updatedEvent.endAt ? updatedEvent.endAt.toLocaleString() : 'N/A'}</li></ul><p>Thank you for registering!</p>`,
+                    });
+
+                    if (error) {
+                        console.error('Resend email send error:', error);
+                    } else {
+                        console.log('Resend email sent:', data);
+                    }
+                } else {
+                    console.warn('Registration email skipped: user has no email');
+                }
+            } catch (emailError) {
+                // Don't fail the registration if email sending fails
+                console.error('Failed to send registration email:', emailError);
+            }
+        }
         return res.status(200).json({ message: 'Registered successfully', registration, event: updatedEvent });
     } catch (error) {
         return res.status(error.status || 500).json({ message: error.message });

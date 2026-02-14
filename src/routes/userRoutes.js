@@ -61,7 +61,7 @@ userRouter.post('/login', async (req, res) => {
         if (!passwordMatch) {
             return res.status(400).json({ error: 'Invalid email or password' });
         }
-        const token = jwt.sign({ userId: user._id, role: user.role }, process.env.JWT_SECRET);
+        const token = jwt.sign({ userId: user._id, role: user.role, email: user.email }, process.env.JWT_SECRET);
         res.json({ message: "Login successful", token });
     } catch (error) {
         res.status(500).json({ message: "Error logging in", error: 'Internal server error' });
