@@ -16,11 +16,27 @@ Backend API for creating virtual/in-person/hybrid events and allowing attendees 
 ## Tech Stack
 
 - Node.js (CommonJS)
-- Express
+- Express (v5)
 - MongoDB + Mongoose
 - Zod (request validation)
 - JWT (`jsonwebtoken`) for auth
-- Resend (email sending)
+- Bcrypt (`bcrypt`) for password hashing
+- Dotenv (`dotenv`) for environment variables
+- Nodemon (`nodemon`) for development auto-restart
+- Resend (`resend`) for email sending
+
+## Dependencies (from package.json)
+
+- `express`
+- `mongoose`
+- `zod`
+- `jsonwebtoken`
+- `bcrypt`
+- `dotenv`
+- `nodemon`
+- `resend`
+
+Note: `@types/express` is included in dependencies even though this is a JavaScript (CommonJS) project.
 
 ## Project Structure
 
@@ -238,4 +254,5 @@ If you’re not receiving emails:
 
 ## Scripts
 
-- `npm run dev` – runs the server with nodemon
+- `npm run dev` – starts `src/app.js` with nodemon
+- `npm start` – runs `npm install` then starts the server with `node src/app.js`
